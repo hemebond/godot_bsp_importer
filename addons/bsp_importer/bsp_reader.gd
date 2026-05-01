@@ -905,6 +905,8 @@ func read_bsp(source_file : String) -> Node:
 				# Get the texture from the face
 				var tex_info : BSPTextureInfo = textureinfos[bsp_face.texinfo_id]
 				var texture : BSPTexture = textures[tex_info.texture_index]
+				if (!include_sky_surfaces && texture.name.begins_with("sky")):
+					continue # Skip sky
 
 				var vs := tex_info.vec_s
 				var vt := tex_info.vec_t
