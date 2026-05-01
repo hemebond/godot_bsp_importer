@@ -259,6 +259,7 @@ func _get_import_options(path : String, preset_index : int):
 						}]
 					_:
 						return []
+	return []
 
 
 func _get_option_visibility(_option, _options, _unknown_dictionary):
@@ -368,3 +369,4 @@ func _import(source_file : String, save_path : String, options : Dictionary, r_p
 			var r = ResourceSaver.save(packed_scene, "%s.%s" % [save_path, _get_save_extension()])
 			bsp_reader.free()
 			return r
+	return Error.FAILED
