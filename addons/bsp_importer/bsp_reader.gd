@@ -51,6 +51,8 @@ const NODES_STRUCT_SIZE_Q1BSP2 := (4 + 4 + 4 + 4 * 6 + 4 + 4) # 32bit int for pl
 const LEAF_SIZE_Q1BSP := 4 + 4 + 2 * 6 + 2 + 2 + 1 + 1 + 1 + 1
 const LEAF_SIZE_BSP2 := 4 + 4 + 4 * 6 + 4 + 4 + 1 + 1 + 1 + 1
 
+
+
 class BSPEdge:
 	var vertex_index_0 : int
 	var vertex_index_1 : int
@@ -968,21 +970,7 @@ func read_bsp(source_file : String) -> Node:
 						surface_tools[texture.name] = surf_tool
 					mesh_grid[grid_index] = surface_tools
 				surf_tool.add_triangle_fan(face_verts, face_uvs, [], [], face_normals)
-				if (texture.has_alpha_test):
-					var face_plane := Plane(face_normal, face_position)
-					var point_inside := face_position - face_normal * 0.01 # Move the point ever so slightly inward so we can check if it's inside the brush without doing an espilon check every time.
-					if (model_index in bspx_model_to_brush_map):
-						var bspx_brush_stuff := bspx_model_to_brush_map[model_index]
-						for brush_plane in bspx_brush_stuff.planes_brush_map.keys():
-							# This could stand to be optimized:
-							# - we could look up by plane directly then loop through if not found.
-							# - Could maybe sort planes by distance to find the closest one with a binary search
-							if (brush_plane.is_equal_approx(face_plane)):
-								for brush_index in bspx_brush_stuff.planes_brush_map[brush_plane]:
-									var brush := bspx_brush_stuff.brush_array[brush_index]
-									if (brush.aabb.has_point(point_inside)):
-										# This is our brush, I guess.
-										brush.collision_shape.disabled = true # TODO: TESTING: Just disable it for now to test.
+				apply_surface_info_to_collision(texture, model_index, face_position, face_normal, face_verts, face_uvs)
 
 				# Need to create unique meshes for each transparent surface so they sort properly.
 				# These ignore the mesh grid.
@@ -1118,6 +1106,42 @@ func read_bsp(source_file : String) -> Node:
 	file = null
 	print("BSP read complete.")
 	return root_node
+
+## Check for things like alpha test in the texture.
+## In the future, we may have per surface material flags here
+func apply_surface_info_to_collision(bsp_texture : BSPTexture, model_index : int, face_position : Vector3, face_normal : Vector3, face_verts : PackedVector3Array, face_uvs : PackedVector2Array):
+	# Only bothering with alpha textures right now.  Might have per material flags or something later.
+	if (bsp_texture.has_alpha_test):
+		var face_plane := Plane(face_normal, face_position)
+		var point_inside := face_position - face_normal * 0.01 # Move the point ever so slightly inward so we can check if it's inside the brush without doing an espilon check every time.
+		if (model_index in bspx_model_to_brush_map):
+			var bspx_brush_stuff := bspx_model_to_brush_map[model_index]
+			for brush_plane in bspx_brush_stuff.planes_brush_map.keys():
+				# This could stand to be optimized:
+				# - we could look up by plane directly then loop through if not found.
+				# - Could maybe sort planes by distance to find the closest one with a binary search
+				if (brush_plane.is_equal_approx(face_plane)):
+					for brush_index in bspx_brush_stuff.planes_brush_map[brush_plane]:
+						var brush := bspx_brush_stuff.brush_array[brush_index]
+						if (brush.aabb.has_point(point_inside)):
+							# This is our brush, I guess.
+							var meta : Array[CollisionSurfaceInfo] = brush.collision_shape.get_meta(&"surface_info", [] as Array[CollisionSurfaceInfo])
+							var collision_surface_info := CollisionSurfaceInfo.new()
+							var texture2d : Texture2D = get_texture_from_material(bsp_texture.material)
+							collision_surface_info.normal = face_normal
+							collision_surface_info.texture = texture2d
+							collision_surface_info.has_alpha_test = bsp_texture.has_alpha_test
+							#collision_surface_info.verts = face_verts.slice(0, 3)
+							#collision_surface_info.uvs = face_uvs.slice(0, 3)
+							# Saving Packed arrays is bugged, so we have to convert them ot a regular arary. :(
+							for i in 3:
+								collision_surface_info.verts.push_back(face_verts[i])
+								collision_surface_info.uvs.push_back(face_uvs[i])
+							meta.append(collision_surface_info)
+							brush.collision_shape.set_meta(&"surface_info", meta)
+							brush.collision_shape.set_meta(&"has_alpha_test", true) # NOTE: If we add other material info this way we'll need to do a check for this before adding.
+							print("Metadata set verts: ", collision_surface_info.verts)
+							return
 
 
 # Traverse tree and create liquid.
@@ -1669,20 +1693,7 @@ func load_or_create_material(name : StringName, bsp_texture : BSPTexture = null)
 		# Try to get the width and height off of the material.
 		if (width == 0 || height == 0):
 			print(name, ": Texture size is 0.  Attempting to get texture size from material.")
-			if (material is BaseMaterial3D):
-				print("Attempting to get image size from base material.")
-				texture = material.albedo_texture
-			elif (material is ShaderMaterial):
-				var parameters_to_check : PackedStringArray = [ "albedo_texture", "texture_albedo", "texture", "albedo", "texture_diffuse" ]
-				for param_name in parameters_to_check:
-					# Might not exist/be a texture, so we need to test for htat.
-					var test = material.get_shader_parameter(param_name)
-					if (test is Texture2D):
-						print("Got ", param_name, " from ShaderMaterial.")
-						texture = test
-						break
-				if (!texture):
-					print("No texture found in shader material with these parameters: ", parameters_to_check)
+			texture = get_texture_from_material(material)
 			if (texture):
 				width = texture.get_width()
 				height = texture.get_height()
@@ -1808,6 +1819,23 @@ func load_or_create_material(name : StringName, bsp_texture : BSPTexture = null)
 	material_info.width = width
 	material_info.height = height
 	return material_info
+
+
+func get_texture_from_material(material : Material) -> Texture2D:
+	if (material is BaseMaterial3D):
+		print("Attempting to get image size from base material.")
+		return material.albedo_texture
+	elif (material is ShaderMaterial):
+		var parameters_to_check : PackedStringArray = [ "albedo_texture", "texture_albedo", "texture", "albedo", "texture_diffuse" ]
+		for param_name in parameters_to_check:
+			# Might not exist/be a texture, so we need to test for htat.
+			var test_texture = material.get_shader_parameter(param_name)
+			if (test_texture is Texture2D):
+				print("Got ", param_name, " from ShaderMaterial.")
+				return test_texture
+		print("No texture found in shader material with these parameters: ", parameters_to_check)
+	return null
+
 
 func is_fullbright_index(index : int) -> bool:
 	if (fullbright_range.size() == 0):
