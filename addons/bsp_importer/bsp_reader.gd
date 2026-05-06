@@ -1091,7 +1091,7 @@ func read_bsp(source_file : String) -> Node:
 		var script = load(post_import_script_path)
 		if (script && script is Script):
 			post_import_node.set_script(script)
-			if (post_import_node.has_method("post_import")):
+			if (post_import_node.has_method(&"post_import")):
 				if (post_import_node.get_script().is_tool()):
 					post_import_node.post_import(root_node)
 				else:
@@ -1201,15 +1201,16 @@ var post_import_nodes : Array[Node] = []
 func convert_entity_dict_to_scene(ent_dict_array : Array):
 	post_import_nodes = []
 	for ent_dict in ent_dict_array:
-		if (ent_dict.has("classname")):
-			var classname : StringName = ent_dict["classname"].to_lower()
+		if (ent_dict.has(&"classname")):
+			var classname : StringName = ent_dict[&"classname"].to_lower()
 			var scene_path : String = ""
+
 			if (entity_remap.has(classname)):
 				scene_path = entity_remap[classname]
 			else:
 				if (classname != WORLDSPAWN_STRING_NAME):
 					scene_path = entity_path_pattern.replace("{classname}", classname)
-			
+
 			if (!scene_path.is_empty() && ResourceLoader.exists(scene_path)):
 				var scene_resource = load(scene_path)
 				if (!scene_resource):
@@ -1219,12 +1220,12 @@ func convert_entity_dict_to_scene(ent_dict_array : Array):
 					if (!scene_node):
 						print("Failed to instantiate scene: ", scene_path)
 					else:
-						if (scene_node.has_method("post_import")):
+						if (scene_node.has_method(&"post_import")):
 							post_import_nodes.append(scene_node)
 						add_generic_entity(scene_node, ent_dict)
 
 						# Imported script might need to know all values in the entity dictionary ahead of time, so optionally send that as well.
-						if (scene_node.has_method("set_entity_dictionary")):
+						if (scene_node.has_method(&"set_entity_dictionary")):
 							if (!scene_node.get_script().is_tool()):
 								printerr(scene_node.name + " has 'set_entity_dictionary()' function but must have @tool set to work for imports.")
 							else:
@@ -1235,7 +1236,7 @@ func convert_entity_dict_to_scene(ent_dict_array : Array):
 						for key in ent_dict.keys():
 							var string_value : String = ent_dict[key]
 							var value = string_value
-							if (key == "spawnflags"):
+							if (key == &"spawnflags"):
 								value = value.to_int()
 
 							# Allow scenes to have custom implementations of this so they can remap values or whatever
